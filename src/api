@@ -1,0 +1,92 @@
+import axios from 'axios';
+
+const API_URL = 'http://localhost:8000/api';
+
+// Create axios instance
+const api = axios.create({
+  baseURL: API_URL,
+  headers: {
+    'Content-Type': 'application/json',
+  },
+});
+
+// Add token to requests
+api.interceptors.request.use(
+  (config) => {
+    const token = localStorage.getItem('access_token');
+    if (token) {
+      config.headers.Authorization = `Bearer ${token}`;
+    }
+    return config;
+  },
+  (error) => {
+    return Promise.reject(error);
+  }
+);
+
+// Handle token refresh on 401 errors
+api.interceptors.response.use(
+  (response) => response,
+  async (error) => {
+    const originalRequest = error.config;
+
+    if (error.response?.status === 401 && !originalRequest._retry) {
+      originalRequest._retry = true;
+
+      try {
+        const refreshToken = localStorage.getItem('refresh_token');
+        if (refreshToken) {
+          const response = await axios.post(`${API_URL}/auth/token/refresh/`, {
+            refresh: refreshToken,
+          });
+
+          const { access } = response.data;
+          localStorage.setItem('access_token', access);
+
+          originalRequest.headers.Authorization = `Bearer ${access}`;
+          return api(originalRequest);
+        }
+      } catch (refreshError) {
+        localStorage.removeItem('access_token');
+        localStorage.removeItem('refresh_token');
+        window.location.href = '/login';
+        return Promise.reject(refreshError);
+      }
+    }
+
+    return Promise.reject(error);
+  }
+);
+
+// Auth API
+export const authAPI = {
+  register: (data) => api.post('/auth/register/', data),
+  login: (data) => api.post('/auth/login/', data),
+  logout: (refresh) => api.post('/auth/logout/', { refresh }),
+  getUser: () => api.get('/auth/user/'),
+  updateProfile: (data) => api.patch('/auth/profile/', data),
+  changePassword: (data) => api.post('/auth/change-password/', data),
+};
+
+// Services API
+export const servicesAPI = {
+  getAll: () => api.get('/services/'),
+  getById: (id) => api.get(`/services/${id}/`),
+  create: (data) => api.post('/services/', data),
+  update: (id, data) => api.put(`/services/${id}/`, data),
+  delete: (id) => api.delete(`/services/${id}/`),
+  getStats: () => api.get('/services/stats/'),
+};
+
+// Bookings API
+export const bookingsAPI = {
+  getAll: () => api.get('/bookings/'),
+  getById: (id) => api.get(`/bookings/${id}/`),
+  create: (data) => api.post('/bookings/', data),
+  update: (id, data) => api.patch(`/bookings/${id}/`, data),
+  cancel: (id) => api.post(`/bookings/${id}/cancel/`),
+  getAdminAll: () => api.get('/bookings/admin/'),
+  getStats: () => api.get('/bookings/stats/'),
+};
+
+export default api;
